@@ -37,7 +37,8 @@ function sectionsOf(tabs: Workspace[]): Section[] {
           seen.add(m.id)
           rows.push({ agent: m, tab })
         }
-      teams.push({ key: t.frame.id, title: t.frame.title.trim(), tab, rows })
+      // a team frame with no agents (yet) would only add an empty header
+      if (rows.length) teams.push({ key: t.frame.id, title: t.frame.title.trim(), tab, rows })
     }
     for (const e of tab.elements)
       if (e.type === 'widget' && e.kind === 'agent' && !seen.has(e.id)) loose.push({ agent: e, tab })
@@ -164,8 +165,13 @@ export function Roster() {
   const activeTab = tabs.find((t) => t.id === activeTabId)
 
   // "@team-a fix it" routes by mention (resolved against the active tab, where
-  // the user is looking); anything else keeps the focused-agent/all behaviour
-  const mention = text.trimStart().startsWith('@') && activeTab ? parseCommand(activeTab, text) : null
+  // the user is looking); anything else keeps the focused-agent/all behaviour.
+  // Mention mode needs at least one resolved target: "@src/app.ts explain" is a
+  // Claude Code @file reference and must go out unchanged as before.
+  const parsed = text.trimStart().startsWith('@') && activeTab ? parseCommand(activeTab, text) : null
+  const mention = parsed && parsed.resolved.length ? parsed : null
+  // unresolved tokens next to a resolved one are kept for the agent (@files)
+  const mentionBody = mention ? [...mention.unknown.map((u) => '@' + u), mention.text].join(' ').trim() : ''
 
   const focus = (row: Row) => {
     if (activeTabId !== row.tab.id) switchTab(row.tab.id)
@@ -188,7 +194,7 @@ export function Roster() {
     if (!body) return
     if (mention) {
       if (!mention.ids.length || !mention.text) return
-      if (sendToAgents(mention.ids, mention.text)) setText('')
+      if (sendToAgents(mention.ids, mentionBody)) setText('')
       return
     }
     const ids = target ? [target] : rows.map((r) => r.agent.id)
@@ -299,9 +305,9 @@ export function Roster() {
                 {mention.ids.length === 1 ? '' : 's'})
               </span>
             )}
-            {mention.unknown.length > 0 && (
+            {mention.ids.length === 0 && (
               <span style={S.unknown}>
-                unknown: {mention.unknown.map((u) => '@' + u).join(' ')}
+                {mention.resolved.map((r) => '@' + r).join(' ')} has no agents
               </span>
             )}
           </div>

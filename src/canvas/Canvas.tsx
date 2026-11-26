@@ -40,7 +40,7 @@ import { IconExternal } from '../ui/icons'
 import { ElementView } from './ElementView'
 import { TextElement } from './TextElement'
 import { WidgetFrame } from '../widgets/WidgetFrame'
-import { agentsInFrame, pauseAgents, resumeAgents } from '../lib/teams'
+import { agentsInFrame, isTeamFrame, pauseAgents, resumeAgents } from '../lib/teams'
 import { useAgents } from '../lib/agents'
 import '../styles/team-frame.css'
 
@@ -399,7 +399,16 @@ export function Canvas() {
       if (el.id === excludeId || !BINDABLE.has(el.type)) continue
       const b = elementBounds(el)
       const exp = { x: b.x - margin, y: b.y - margin, w: b.w + margin * 2, h: b.h + margin * 2 }
-      if (pointInRect(world, exp) && (!target || el.z > target.z)) target = el
+      if (!pointInRect(world, exp)) continue
+      // frames rank below every other bindable: a frame drawn around existing
+      // agents sits above them in z, but a drop on an agent inside it must
+      // bind to that agent (a frame binding would fan out to the whole team).
+      // The frame wins only on empty frame space.
+      if (target && (target.type === 'frame') !== (el.type === 'frame')) {
+        if (el.type !== 'frame') target = el
+        continue
+      }
+      if (!target || el.z > target.z) target = el
     }
     if (!target) return null
     const b = elementBounds(target)
@@ -1213,8 +1222,11 @@ function FrameView({
   const mutate = useStore((s) => s.mutateElement)
   const beginHistory = useStore((s) => s.beginHistory)
   const editing = editingId === el.id
-  // same rule as teamsOf(): a titled frame that is not a labelAgent label box
-  const team = !el.labelFor && !!el.title.trim()
+  // same rule as teamsOf() (non-default title, not a label box), plus at least
+  // one agent inside: frames that only group notes or images keep their plain
+  // look and chosen colour, as they did before team frames existed
+  const hasAgents = useStore((s) => isTeamFrame(el) && agentsInFrame(selectActive(s), el).length > 0)
+  const team = hasAgents
   return (
     <div
       className={`frame-el${team ? ' frame-el--team' : ''}${selected ? ' frame-el--selected' : ''}`}

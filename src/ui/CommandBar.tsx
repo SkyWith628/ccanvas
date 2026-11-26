@@ -107,6 +107,10 @@ export function CommandBar() {
   // text that was in the input when listening began; speech is appended to it
   const voiceBase = useRef('')
   const voiceFinal = useRef('')
+  // set when listening is cut short by Enter (text already sent) or Escape
+  // (user is leaving the bar): onend must then not restore the transcript or
+  // pull focus back into the input
+  const discardVoice = useRef(false)
 
   const hasVoice = useMemo(() => speechCtor() !== null, [])
 
@@ -125,8 +129,11 @@ export function CommandBar() {
     [],
   )
 
+  // Group only wraps directly selected agent widgets (groupSelectionAsTeam
+  // ignores members of a selected frame), so the chip's enabled state must
+  // follow that rule rather than selectedAgentIds, which is for routing sends
   const hasSelectedAgent = useMemo(
-    () => selectedAgentIds(ws, selection).length > 0,
+    () => selection.some((id) => isAgentWidget(ws.elements.find((e) => e.id === id))),
     [ws, selection],
   )
 
@@ -163,28 +170,35 @@ export function CommandBar() {
     const parsed = parseCommand(ws, raw)
     const unknown = parsed.unknown.map((u) => `@${u}`).join(' ')
     let ids = parsed.ids
-    if (!ids.length) {
-      if (parsed.unknown.length) {
-        flash(`unknown ${unknown}`, 'warn')
-        return
-      }
+    // Unresolved @tokens are most likely Claude Code @file references
+    // ("@src/app.ts explain this"), so they stay in the text the agent gets
+    let text = [unknown, parsed.text].filter(Boolean).join(' ')
+    if (!parsed.resolved.length) {
+      // no team/agent addressed: send the raw text to the selection
+      text = raw
       ids = selectedAgentIds(ws, useStore.getState().selection)
       if (!ids.length) {
-        flash('type @ to pick a team or agent', 'warn')
+        flash(
+          parsed.unknown.length ? `unknown ${unknown} — select agents or @ a team` : 'type @ to pick a team or agent',
+          'warn',
+        )
         return
       }
+    } else if (!ids.length) {
+      // the user addressed a team explicitly; never fall back to the selection
+      flash(`${parsed.resolved.map((r) => `@${r}`).join(' ')} has no agents`, 'warn')
+      return
     }
-    if (!parsed.text) {
+    if (parsed.resolved.length && !parsed.text) {
       flash('nothing to send — add a message after the mention', 'warn')
       return
     }
-    const n = sendToAgents(ids, parsed.text)
+    const n = sendToAgents(ids, text)
     if (!n) {
       flash('no live agents', 'warn')
       return
     }
-    const tail = parsed.unknown.length ? ` · unknown ${unknown}` : ''
-    flash(`sent to ${plural(n, 'agent')}${tail}`, parsed.unknown.length ? 'warn' : 'ok')
+    flash(`sent to ${plural(n, 'agent')}`)
     setValue('')
     setCaret(0)
   }
@@ -211,6 +225,7 @@ export function CommandBar() {
     const base = inputRef.current?.value ?? ''
     voiceBase.current = base && !/\s$/.test(base) ? `${base} ` : base
     voiceFinal.current = ''
+    discardVoice.current = false
     rec.lang = navigator.language || 'en-US'
     rec.continuous = true
     rec.interimResults = true
@@ -230,12 +245,16 @@ export function CommandBar() {
       else if (e.error !== 'no-speech' && e.error !== 'aborted') flash(`voice error: ${e.error}`, 'warn')
     }
     rec.onend = () => {
+      recRef.current = null
+      setListening(false)
+      if (discardVoice.current) {
+        discardVoice.current = false
+        return
+      }
       // keep only the final transcript so the user can edit it, then Enter
       const text = (voiceBase.current + voiceFinal.current).replace(/\s+$/, '')
       setValue(text)
       setCaret(text.length)
-      recRef.current = null
-      setListening(false)
       requestAnimationFrame(() => {
         const el = inputRef.current
         if (!el) return
@@ -329,13 +348,19 @@ export function CommandBar() {
 
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      if (recRef.current) stopVoice()
+      if (recRef.current) {
+        discardVoice.current = true
+        recRef.current.abort()
+      }
       submit()
       return
     }
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (recRef.current) recRef.current.abort()
+      if (recRef.current) {
+        discardVoice.current = true
+        recRef.current.abort()
+      }
       inputRef.current?.blur()
     }
   }
@@ -418,7 +443,7 @@ export function CommandBar() {
   const showPopup = suggestions.length > 0
 
   return (
-    <div className="cmdbar" onKeyDown={(e) => e.stopPropagation()}>
+    <div className={`cmdbar${openPanel ? ' cmdbar--panel' : ''}`} onKeyDown={(e) => e.stopPropagation()}>
       {!hintDismissed && (
         <div className="cmdbar__hint">
           <button className="cmdbar__hint-text" onClick={tryHint} title="Fill the input with this example">

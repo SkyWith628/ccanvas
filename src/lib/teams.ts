@@ -28,10 +28,25 @@ export function agentsInFrame(ws: Workspace, frame: FrameElement): WidgetElement
   )
 }
 
-/** Titled frames (label boxes made by labelAgent are excluded) with their members. */
+/**
+ * Whether a frame title names a team. The frame tool titles every new frame
+ * "frame" (and rename falls back to it), so that default — and an empty title —
+ * means a plain frame used to group notes or images, not a team.
+ */
+export function isTeamTitle(title: string): boolean {
+  const t = title.trim()
+  return !!t && t.toLowerCase() !== 'frame'
+}
+
+/** Whether a frame is a team frame: titled with a non-default name, not a label box. */
+export function isTeamFrame(el: CanvasElement | undefined): el is FrameElement {
+  return !!el && el.type === 'frame' && !el.labelFor && isTeamTitle(el.title)
+}
+
+/** Team frames (label boxes and default-titled "frame"s are excluded) with their members. */
 export function teamsOf(ws: Workspace): Team[] {
   return ws.elements
-    .filter((e): e is FrameElement => e.type === 'frame' && !e.labelFor && !!e.title.trim())
+    .filter(isTeamFrame)
     .map((frame) => ({ frame, members: agentsInFrame(ws, frame) }))
 }
 
@@ -123,6 +138,16 @@ export function busyAgents(ws: Workspace): string[] {
 // Pause = interrupt the current Claude Code turn with Esc; resume = tell it to
 // continue. Agents we paused are remembered so "resume all" only nudges those.
 const paused = new Set<string>()
+
+// An agent we paused may be restarted some other way (typing in its terminal,
+// a prompt from the bar or roster). Once it starts a new turn it is no longer
+// "paused", so forget it — otherwise a later "resume all" would send a stray
+// "continue" into the middle of that new task. Only a transition *into*
+// working counts: right after the Esc the old status may still read working.
+useAgents.subscribe((state, prev) => {
+  for (const id of paused)
+    if (state.status[id] === 'working' && prev.status[id] !== 'working') paused.delete(id)
+})
 
 export function isPaused(id: string): boolean {
   return paused.has(id)
@@ -220,8 +245,21 @@ export function spawnTeam(
   const innerH = rows * CARD_H + (rows - 1) * GAP
   const fw = innerW + PAD * 2
   const fh = innerH + TOP + PAD
-  const fx = cx - fw / 2
+  let fx = cx - fw / 2
   const fy = cy - fh / 2
+  // Never stack a new team on top of existing widgets or frames: an overlapping
+  // frame would count the other team's agents as its own members. Slide right
+  // past whatever the new box would cover until it lands on free space.
+  const blockers = ws.elements.filter((e) => e.type === 'widget' || e.type === 'frame') as Array<
+    CanvasElement & { x: number; y: number; w: number; h: number }
+  >
+  for (let guard = 0; guard < 50; guard++) {
+    const hit = blockers.find(
+      (b) => b.x < fx + fw && b.x + b.w > fx && b.y < fy + fh && b.y + b.h > fy,
+    )
+    if (!hit) break
+    fx = hit.x + hit.w + GAP * 3
+  }
   const dir = ws.dir
   const prefix = slug(name)
   const frame: FrameElement = {

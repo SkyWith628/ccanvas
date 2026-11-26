@@ -9,7 +9,8 @@
   left: 50%;
   bottom: 54px;
   transform: translateX(-50%);
-  width: min(620px, calc(100% - 340px));
+  /* 380px keeps the right end clear of the 168px minimap at right: 12px */
+  width: min(620px, calc(100% - 380px));
   min-width: 300px;
   display: flex;
   flex-direction: column;
@@ -20,6 +21,12 @@
 }
 .cmdbar > * {
   pointer-events: auto;
+}
+/* A right side panel (.panel: right 14px, 332px wide, z 30) is open: centre
+   the bar in the space left of it so the panel never covers the input/mic. */
+.cmdbar--panel {
+  left: calc(50% - 174px);
+  width: min(620px, calc(100% - 384px));
 }
 
 /* ---- hint chip ---- */
