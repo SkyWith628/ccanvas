@@ -40,6 +40,9 @@ import { IconExternal } from '../ui/icons'
 import { ElementView } from './ElementView'
 import { TextElement } from './TextElement'
 import { WidgetFrame } from '../widgets/WidgetFrame'
+import { agentsInFrame, pauseAgents, resumeAgents } from '../lib/teams'
+import { useAgents } from '../lib/agents'
+import '../styles/team-frame.css'
 
 type ScreenRect = { x: number; y: number; w: number; h: number }
 type Corner = 'nw' | 'ne' | 'sw' | 'se'
@@ -1210,14 +1213,24 @@ function FrameView({
   const mutate = useStore((s) => s.mutateElement)
   const beginHistory = useStore((s) => s.beginHistory)
   const editing = editingId === el.id
+  // same rule as teamsOf(): a titled frame that is not a labelAgent label box
+  const team = !el.labelFor && !!el.title.trim()
   return (
     <div
-      className={`frame-el${selected ? ' frame-el--selected' : ''}`}
-      style={{ left: el.x, top: el.y, width: el.w, height: el.h, borderColor: el.color }}
+      className={`frame-el${team ? ' frame-el--team' : ''}${selected ? ' frame-el--selected' : ''}`}
+      // team frames take their colour from the stylesheet (dashboard look);
+      // plain frames keep the per-frame colour exactly as before
+      style={{
+        left: el.x,
+        top: el.y,
+        width: el.w,
+        height: el.h,
+        ...(team ? null : { borderColor: el.color }),
+      }}
     >
       <div
-        className="frame-el__label"
-        style={{ color: el.color }}
+        className={`frame-el__label${team ? ' team-frame__bar' : ''}`}
+        style={team ? undefined : { color: el.color }}
         onPointerDown={(e) => onPointerDown(e, el.id)}
         onDoubleClick={(e) => {
           e.stopPropagation()
@@ -1243,11 +1256,111 @@ function FrameView({
               if (e.key === 'Escape') setEditingText(null)
             }}
           />
+        ) : team ? (
+          <TeamHeader frame={el} />
         ) : (
           el.title
         )}
       </div>
     </div>
+  )
+}
+
+// below this zoom the team bar is counter-scaled so its buttons stay a usable
+// size; above it the bar scales with the world like any other frame label
+const TEAM_BAR_MIN_ZOOM = 0.75
+
+/** "▾ TEAM A · 3 running · 1 waiting" plus pause/resume for one team frame. */
+function TeamHeader({ frame }: { frame: FrameElement }) {
+  // member ids as one string so geometry-unrelated store churn (typing, other
+  // elements moving) doesn't re-render the header — only membership changes do
+  const memberKey = useStore((s) =>
+    agentsInFrame(selectActive(s), frame)
+      .map((m) => m.id)
+      .join(' '),
+  )
+  const ids = memberKey ? memberKey.split(' ') : []
+  // likewise collapse member statuses into a primitive: status churn of agents
+  // outside this team (or within-state flicker) never re-renders it
+  const counts = useAgents((s) => {
+    let running = 0
+    let waiting = 0
+    for (const id of ids) {
+      const st = s.status[id]
+      if (st === 'working') running++
+      else if (st === 'waiting') waiting++
+    }
+    return `${running}:${waiting}`
+  })
+  const [running, waiting] = counts.split(':').map(Number)
+  const zoom = useStore((s) => selectActive(s).camera.zoom)
+  const boost = zoom < TEAM_BAR_MIN_ZOOM ? TEAM_BAR_MIN_ZOOM / zoom : 1
+
+  const state = running > 0 ? 'running' : waiting > 0 ? 'waiting' : 'idle'
+
+  // buttons live inside the draggable label: swallow the press so it never
+  // starts a frame drag/selection, and the double-click so it never renames
+  const guard = {
+    onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
+    onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+  }
+  const pause = () => {
+    // read status at click time — only interrupt members that are mid-turn
+    const status = useAgents.getState().status
+    pauseAgents(ids.filter((id) => status[id] === 'working' || status[id] === 'waiting'))
+  }
+
+  return (
+    <span
+      className="team-frame__head"
+      style={boost !== 1 ? { transform: `scale(${boost})` } : undefined}
+    >
+      <span className="team-frame__caret" aria-hidden>
+        ▾
+      </span>
+      <span className={`team-frame__dot team-frame__dot--${state}`} aria-hidden />
+      <span className="team-frame__title">{frame.title.trim()}</span>
+      <span className="team-frame__meta">
+        {' · '}
+        {ids.length === 0 ? 'empty' : `${running} running`}
+        {waiting > 0 && ` · ${waiting} waiting`}
+      </span>
+      <button
+        type="button"
+        className="team-frame__btn"
+        title="Pause running agents in this team"
+        aria-label="Pause team"
+        // aria-disabled, not disabled: a disabled button swallows pointer
+        // events inconsistently across engines, letting a press start a drag
+        aria-disabled={running + waiting === 0}
+        {...guard}
+        onClick={(e) => {
+          e.stopPropagation()
+          pause()
+        }}
+      >
+        <svg viewBox="0 0 10 10" width="8" height="8" aria-hidden>
+          <rect x="2" y="1.5" width="2" height="7" rx="0.5" fill="currentColor" />
+          <rect x="6" y="1.5" width="2" height="7" rx="0.5" fill="currentColor" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="team-frame__btn"
+        title="Resume paused agents in this team"
+        aria-label="Resume team"
+        aria-disabled={ids.length === 0}
+        {...guard}
+        onClick={(e) => {
+          e.stopPropagation()
+          resumeAgents(ids)
+        }}
+      >
+        <svg viewBox="0 0 10 10" width="8" height="8" aria-hidden>
+          <path d="M2.5 1.5 L8.5 5 L2.5 8.5 Z" fill="currentColor" />
+        </svg>
+      </button>
+    </span>
   )
 }
 
