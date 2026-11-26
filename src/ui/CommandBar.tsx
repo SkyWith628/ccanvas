@@ -132,15 +132,17 @@ export function CommandBar() {
 
   // ---- @ autocomplete --------------------------------------------------
   const mention = focused && !popupClosed ? mentionAt(value, caret) : null
+  const mentionPrefix = mention ? mention.prefix : null
   const suggestions: MentionTarget[] = useMemo(() => {
-    if (!mention) return []
-    const key = slug(mention.prefix)
+    if (mentionPrefix === null) return []
+    const key = slug(mentionPrefix)
+    // teams come first: mentionTargets already orders them that way
     return mentionTargets(ws)
       .filter((t) => slug(t.name).startsWith(key))
       .slice(0, 8)
-  }, [ws, mention?.prefix, mention !== null]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ws, mentionPrefix])
 
-  useEffect(() => setPick(0), [mention?.prefix])
+  useEffect(() => setPick(0), [mentionPrefix])
 
   const syncCaret = () => setCaret(inputRef.current?.selectionStart ?? value.length)
 
@@ -428,6 +430,12 @@ export function CommandBar() {
         </div>
       )}
 
+      {status && (
+        <div className={`cmdbar__status cmdbar__status--${status.tone}`} role="status">
+          {status.text}
+        </div>
+      )}
+
       <div className="cmdbar__chips">
         <button className="cmdbar__chip" onClick={newConsole} title="New Claude agent at the centre of the view">
           New console
@@ -528,11 +536,6 @@ export function CommandBar() {
         </div>
       </div>
 
-      {status && (
-        <div className={`cmdbar__status cmdbar__status--${status.tone}`} role="status">
-          {status.text}
-        </div>
-      )}
     </div>
   )
 }

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useStore, selectActive } from '../store/workspace'
 import { broadcast, isLive } from '../lib/agents'
 import type { ArrowElement, ArrowFlow, CanvasElement, FlowCondition } from '../lib/types'
+import { isTeamFrame } from '../lib/flow'
+import { agentsInFrame } from '../lib/teams'
 import {
   IconCopy,
   IconLock,
@@ -53,15 +55,24 @@ export function SelectionBar() {
   const selEls = ws.elements.filter((e) => selection.includes(e.id))
   const loneArrow =
     selEls.length === 1 && selEls[0].type === 'arrow' ? selEls[0] : undefined
-  // a connector between two agents can carry orchestration logic
+  // a connector from an agent to another agent — or to a team frame, which
+  // fans the prompt out to every member — can carry orchestration logic
   const arrowFrom =
     loneArrow?.from && ws.elements.find((e) => e.id === loneArrow.from!.id)
   const arrowTo =
     loneArrow?.to && ws.elements.find((e) => e.id === loneArrow.to!.id)
-  const isFlowEdge = !!loneArrow && isAgentEl(arrowFrom) && isAgentEl(arrowTo)
+  const toTeam = arrowTo && isTeamFrame(arrowTo) ? arrowTo : undefined
+  const isFlowEdge =
+    !!loneArrow && isAgentEl(arrowFrom) && (isAgentEl(arrowTo) || !!toTeam)
   const flow = loneArrow?.flow
   const fromTitle = (arrowFrom && 'title' in arrowFrom && arrowFrom.title) || 'source'
-  const toTitle = (arrowTo && 'title' in arrowTo && arrowTo.title) || 'target'
+  const teamSize = toTeam ? agentsInFrame(ws, toTeam).length : 0
+  const toTitle =
+    (arrowTo && 'title' in arrowTo && arrowTo.title?.trim()) || 'target'
+  // header label: a team target shows how many agents the prompt reaches
+  const toLabel = toTeam
+    ? `${toTitle} (${teamSize} agent${teamSize === 1 ? '' : 's'})`
+    : toTitle
   const multi = selection.length >= 2
 
   // patch the lone arrow's flow config (creating it on first edit)
@@ -192,12 +203,16 @@ export function SelectionBar() {
         <div className="selbar__flow">
           <div className="selbar__flow-head">
             <span className="selbar__flow-edge">
-              {fromTitle} <span className="selbar__flow-arrow">→</span> {toTitle}
+              {fromTitle} <span className="selbar__flow-arrow">→</span> {toLabel}
             </span>
             {!flow || flow.enabled === false ? (
               <button
                 className="selbar__btn selbar__btn--accent"
-                title="Make this connector run the target agent"
+                title={
+                  toTeam
+                    ? `Make this connector run every agent in ${toTitle}`
+                    : 'Make this connector run the target agent'
+                }
                 onClick={() =>
                   patchFlow({ enabled: true, when: flow?.when ?? 'always' }, true)
                 }

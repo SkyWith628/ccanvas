@@ -53,6 +53,7 @@ export function TopBar() {
         <span className="tb-chip__name">{ws.dir ? baseName(ws.dir) : 'set folder'}</span>
       </button>
 
+      <FlowsToggle />
       <LabelFilter />
       <Tools />
       <UsagePill />
@@ -226,6 +227,41 @@ function Tabs() {
         <IconPlus />
       </button>
     </div>
+  )
+}
+
+// Global on/off for agent flows (arrows that run the next agent or team when
+// one finishes). A dot + word, same chip style as the folder chip, so the
+// state is readable at a glance without opening anything.
+function FlowsToggle() {
+  const on = useStore((s) => s.flowsEnabled)
+  const setFlowsEnabled = useStore((s) => s.setFlowsEnabled)
+  return (
+    <button
+      className="tb-chip"
+      style={on ? { color: 'var(--ink)' } : undefined}
+      title={
+        on
+          ? 'Agent flows are on: arrows with logic run their target agent or team. Click to pause.'
+          : 'Agent flows are off: arrows never run agents. Click to turn on.'
+      }
+      aria-pressed={on}
+      onClick={() => setFlowsEnabled(!on)}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          flexShrink: 0,
+          // idle-green when live, hollow when off — mirrors the agent LEDs
+          background: on ? 'var(--led-idle)' : 'transparent',
+          boxShadow: on ? '0 0 6px var(--led-idle)' : 'inset 0 0 0 1px var(--ink-faint)',
+        }}
+      />
+      <span className="tb-chip__name">flows {on ? 'on' : 'off'}</span>
+    </button>
   )
 }
 

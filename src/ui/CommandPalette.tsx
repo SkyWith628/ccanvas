@@ -8,6 +8,13 @@ import { runCommand, joinPath } from '../lib/backend'
 import { sendPrompt, isLive } from '../lib/agents'
 import type { CanvasElement, WidgetKind } from '../lib/types'
 import { AGENT_COLORS } from '../lib/types'
+import {
+  DEFAULT_TEAM_ROLES,
+  groupSelectionAsTeam,
+  pauseAgents,
+  resumeAgents,
+  spawnTeam,
+} from '../lib/teams'
 
 /** The focused/selected agent or terminal a prompt insert should target. */
 function injectTargetId(): string | null {
@@ -334,6 +341,51 @@ export function CommandPalette() {
           s.applyTemplate(t.id, w.x, w.y)
         },
       })
+
+    // teams: titled frames of agents (see lib/teams). Spawned at the world
+    // centre like templates so the new team lands where the user is looking.
+    const selectedAgents = s.selection.filter((id) =>
+      ws.elements.some((e) => e.id === id && e.type === 'widget' && e.kind === 'agent'),
+    ).length
+    out.push(
+      {
+        id: 'team-new',
+        label: 'New team (preset)',
+        hint: `${DEFAULT_TEAM_ROLES.length} agents`,
+        group: 'Teams',
+        run: () => {
+          const w = worldCenter()
+          spawnTeam(w.x, w.y)
+        },
+      },
+      {
+        id: 'team-group',
+        label: 'Group selection as team',
+        hint: selectedAgents ? `${selectedAgents} agents` : 'select agents',
+        group: 'Teams',
+        run: () => void groupSelectionAsTeam(),
+      },
+      {
+        id: 'team-pause',
+        label: 'Pause all agents',
+        hint: 'Esc',
+        group: 'Teams',
+        run: () => void pauseAgents(),
+      },
+      {
+        id: 'team-resume',
+        label: 'Resume paused agents',
+        group: 'Teams',
+        run: () => void resumeAgents(),
+      },
+      {
+        id: 'flows-toggle',
+        label: 'Toggle flows',
+        hint: s.flowsEnabled ? 'on' : 'off',
+        group: 'Teams',
+        run: () => s.setFlowsEnabled(!s.flowsEnabled),
+      },
+    )
 
     // prompt library → insert into the focused agent
     for (const p of s.prompts)
