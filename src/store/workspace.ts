@@ -380,6 +380,24 @@ function patchActive(
   return { tabs }
 }
 
+// flowsEnabled persistence. localStorage can throw (private window, blocked
+// site data), so every access is guarded and falls back to "off".
+const FLOWS_KEY = 'ccanvas.flowsEnabled'
+function loadFlowsEnabled(): boolean {
+  try {
+    return localStorage.getItem(FLOWS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function saveFlowsEnabled(on: boolean) {
+  try {
+    localStorage.setItem(FLOWS_KEY, on ? '1' : '0')
+  } catch {
+    /* not persisted — the in-memory value still applies this session */
+  }
+}
+
 export const useStore = create<Store>((set, get) => ({
   tabs: [],
   activeTabId: null,
@@ -403,7 +421,9 @@ export const useStore = create<Store>((set, get) => ({
   trackingAgentId: null,
   snapGuides: null,
   presenting: false,
-  flowsEnabled: false, // connector flows were removed from the UI
+  // agent flows (orchestrator → team wiring): off on first run so arrows never
+  // start driving agents by surprise; the TopBar toggle's choice is remembered
+  flowsEnabled: loadFlowsEnabled(),
 
   active: () => {
     const s = get()
@@ -1449,6 +1469,7 @@ export const useStore = create<Store>((set, get) => ({
   // ---------- flows ----------
   setFlowsEnabled: (on) => {
     if (!on) resetFlowState() // drop pending satisfied/turn bookkeeping
+    saveFlowsEnabled(on)
     set({ flowsEnabled: on })
   },
 

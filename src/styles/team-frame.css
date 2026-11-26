@@ -1,0 +1,94 @@
+/* Team frames: titled frames rendered as dashboard teams ("▾ TEAM A · 3 running").
+   Plain frames keep the base .frame-el rules in global.css untouched; everything
+   here is scoped to .frame-el--team so they look and behave exactly as before. */
+
+.canvas__frames .frame-el--team {
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 14px;
+  /* darker translucent fill so the team reads as a panel over the dot grid */
+  background: color-mix(in srgb, var(--bg-grad-b) 62%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 22px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.frame-el--team.frame-el--selected {
+  border-radius: 14px;
+  outline-offset: 3px;
+}
+
+.frame-el__label.team-frame__bar {
+  top: -26px;
+  left: 4px;
+  padding: 0;
+  color: var(--ink-dim);
+}
+
+.team-frame__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  /* counter-scale at low zoom grows the bar up and to the right, staying
+     attached to the frame's top-left corner */
+  transform-origin: 0 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.team-frame__caret {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.team-frame__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-ghost);
+  flex: none;
+}
+.team-frame__dot--running {
+  background: var(--led-working);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--led-working) 70%, transparent);
+}
+.team-frame__dot--waiting {
+  background: var(--led-waiting);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--led-waiting) 60%, transparent);
+}
+.team-frame__title {
+  color: var(--ink);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.team-frame__meta {
+  color: var(--ink-faint);
+  white-space: pre;
+}
+
+.team-frame__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.team-frame__btn:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+}
+.team-frame__btn[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: auto;
+}
+.team-frame__btn[aria-disabled='true']:hover {
+  border-color: var(--line);
+  color: var(--ink-dim);
+  background: var(--panel);
+}

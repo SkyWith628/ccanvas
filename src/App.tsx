@@ -28,6 +28,8 @@ import { FollowController } from './ui/FollowController'
 import { useTerminalFileDrop } from './lib/fileDrop'
 import { SettingsPanel } from './ui/SettingsPanel'
 import { UpdateBanner } from './ui/UpdateBanner'
+import { CommandBar } from './ui/CommandBar'
+import './styles/command-bar.css'
 import { inEmacs } from './lib/terminal'
 import {
   useSettings,
@@ -411,6 +413,7 @@ export default function App() {
         <AttentionBar />
         <TrackingBar />
         <Hud />
+        <CommandBar />
         <CommandPalette />
         <CanvasSearch />
         <AgentWizard />

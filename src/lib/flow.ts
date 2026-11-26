@@ -2,15 +2,20 @@
 // ArrowFlow: when the source agent finishes a turn and the edge's condition
 // holds, the target agent is handed a prompt (and Enter). Multiple arrows into
 // one target give join semantics — "after THESE agents run, run THIS one."
+// The target may also be a TEAM frame (a titled frame, not a label box): when
+// that edge fires, the prompt fans out to every agent inside the frame. The
+// frame id is the target for join bookkeeping, so "after A and B, run TEAM X"
+// works exactly like it does for a single agent.
 //
 // This module is non-reactive: TerminalBody calls onAgentTurnComplete() when an
 // agent settles to idle; we read the document from the store and drive live
 // sessions through the transport registry in agents.ts.
 
-import type { ArrowElement, CanvasElement, WidgetElement, Workspace } from './types'
+import type { ArrowElement, CanvasElement, FrameElement, WidgetElement, Workspace } from './types'
 import { useStore } from '../store/workspace'
 import { sendTo, isLive, stripAnsi, notify } from './agents'
 import { readTranscriptSummary } from './transcript'
+import { agentsInFrame, isTeamFrame as teamIsTeamFrame } from './teams'
 
 // Heuristic keyword sets for the success/failure conditions. An agent that
 // needs a reliable signal should instead be told to end with a sentinel and
@@ -157,6 +162,14 @@ function isAgent(el: CanvasElement | undefined): el is WidgetElement {
   return !!el && el.type === 'widget' && el.kind === 'agent'
 }
 
+/** A team frame: the shared rule from lib/teams (non-default title, not a label box). */
+export const isTeamFrame = teamIsTeamFrame
+
+/** A valid flow target: an agent, or a team frame (fan-out to its members). */
+export function isFlowTarget(el: CanvasElement | undefined): el is WidgetElement | FrameElement {
+  return isAgent(el) || isTeamFrame(el)
+}
+
 /** The workspace (tab) that contains a given element id. */
 function tabContaining(id: string): Workspace | null {
   for (const t of useStore.getState().tabs)
@@ -175,8 +188,8 @@ function flowEdges(
     if (!e.from || !e.to) return false
     if (opts.from && e.from.id !== opts.from) return false
     if (opts.to && e.to.id !== opts.to) return false
-    // both ends must resolve to agent widgets
-    return isAgent(byId.get(e.from.id)) && isAgent(byId.get(e.to.id))
+    // source must be an agent; target an agent or a team frame
+    return isAgent(byId.get(e.from.id)) && isFlowTarget(byId.get(e.to.id))
   })
 }
 
@@ -188,19 +201,42 @@ function flowEdges(
  * ingests every line as one block (a bare \n would submit the first line); a
  * trailing \r then submits.
  */
-function deliver(targetId: string, prompt: string, title: string, tries = 0) {
+function deliver(targetId: string, prompt: string, title: string, tries = 0, done?: () => void) {
   const text = prompt.replace(/\r/g, '').replace(/\n+$/, '')
   const payload = text.includes('\n') ? `\x1b[200~${text}\x1b[201~\r` : `${text}\r`
-  if (sendTo(targetId, payload)) return
+  if (sendTo(targetId, payload)) {
+    done?.()
+    return
+  }
   if (tries >= 4) {
     notify('ccanvas flow stalled', `${title} isn't running — open it to receive its prompt.`)
+    done?.()
     return
   }
   if (!isLive(targetId)) {
     // nudge the widget to mount/connect, then retry
     useStore.getState().setActiveWidget(targetId)
   }
-  setTimeout(() => deliver(targetId, prompt, title, tries + 1), 1300)
+  setTimeout(() => deliver(targetId, prompt, title, tries + 1, done), 1300)
+}
+
+/**
+ * Deliver one prompt to many agents. Live ones get it at once; the others are
+ * nudged one at a time (the next only after the previous connected or gave
+ * up), because each nudge makes that widget active — nudging them all in
+ * parallel would bounce focus between terminals.
+ */
+function deliverMany(targets: WidgetElement[], prompt: string) {
+  const pending: WidgetElement[] = []
+  for (const t of targets) {
+    if (isLive(t.id)) deliver(t.id, prompt, t.title || 'agent')
+    else pending.push(t)
+  }
+  const next = () => {
+    const t = pending.shift()
+    if (t) deliver(t.id, prompt, t.title || 'agent', 0, next)
+  }
+  next()
 }
 
 /**
@@ -226,6 +262,7 @@ function fireTarget(
   satisfiedEdges: ArrowElement[],
   outputs: Map<string, string>,
 ) {
+  // one fire = one runaway-guard tick, even when it fans out to a whole team
   if (!allowFire()) return
   const target = ws.elements.find((e) => e.id === targetId)
   const title = (target && 'title' in target && target.title) || 'agent'
@@ -241,6 +278,18 @@ function fireTarget(
   satisfied.delete(targetId)
   if (!prompt) {
     notify('ccanvas flow', `${title} triggered, but there was no output or prompt to send.`)
+    return
+  }
+  if (isTeamFrame(target)) {
+    // fan out to the team's members, skipping the agents that fed this fire
+    // so an agent inside its own team frame doesn't re-prompt itself
+    const sources = new Set(satisfiedEdges.map((e) => e.from?.id))
+    const members = agentsInFrame(ws, target).filter((a) => !sources.has(a.id))
+    if (!members.length) {
+      notify('ccanvas flow', `${title} triggered, but it has no agents to run.`)
+      return
+    }
+    deliverMany(members, prompt)
     return
   }
   deliver(targetId, prompt, title)
